@@ -1,0 +1,205 @@
+#!/usr/bin/env python3
+
+import argparse
+import socket
+from urllib.parse import urlparse
+import sys
+import os
+
+# Custom FTP command-line interface
+parser = argparse.ArgumentParser(description='FTP Client: Connect and operate on an FTP server')
+commands = parser.add_subparsers(help="FTP Commands", dest="command", required=True)
+
+list_parser = commands.add_parser("ls", help="List files on the remote FTP server")
+list_parser.add_argument("URL", type=str, action="store")
+
+mkdir_parser = commands.add_parser("mkdir", help="Create a directory on the specified URL")
+mkdir_parser.add_argument("URL", type=str, action="store")
+
+rm_parser = commands.add_parser("rm", help="Delete a specified file on the FTP server")  
+rm_parser.add_argument("URL", type=str, action="store")
+
+rmdir_parser = commands.add_parser("rmdir", help="Remove the specified directory from the server")
+rmdir_parser.add_argument("URL", type=str, action="store")
+
+cp_parser = commands.add_parser("cp", help="Copy a file to or from the remote server")
+cp_parser.add_argument("SOURCE", type=str, action="store",
+                    help="The URL or file path to copy the file from")
+cp_parser.add_argument("DEST", type=str, action="store",
+                    help="The URL or file path to copy the file to")
+
+mv_parser = commands.add_parser("mv", help="Move a file to or from the remote server")
+mv_parser.add_argument("SOURCE", type=str, action="store",
+                    help="The URL or file path to move the file from")
+mv_parser.add_argument("DEST", type=str, action="store",
+                    help="The URL or file path to move the file to")
+
+# Parse command-line arguments
+args = parser.parse_args()
+
+# Initialize FTP connection parameters
+ftp_user = ""
+ftp_password = ""
+ftp_host = ""
+ftp_port = 21
+ftp_path = ""
+local_path = ""
+
+def is_valid_url(url):
+    """Check if a URL is valid"""
+    try:
+        result = urlparse(url)
+        if not all([result.scheme, result.netloc, result.path]):
+            return False
+        return True
+    except:
+        return False
+
+def parse_ftp_url(arg_url:str):
+    """Parse FTP URL"""
+    url = urlparse(arg_url)
+    if not url.scheme == "ftp":
+        sys.exit("Error: Only FTP servers are supported")
+
+    global ftp_user, ftp_password, ftp_host, ftp_port, ftp_path
+    ftp_password = url.password
+    ftp_user = url.username
+    ftp_host = url.hostname
+    if isinstance(url.port, str):
+        ftp_port = int(url.port)
+    ftp_path = url.path
+
+single_param_commands = ["ls", "mkdir", "rm", "rmdir"]
+double_param_commands = ["cp", "mv"]
+PULL = False
+
+if args.command in single_param_commands:
+    parse_ftp_url(args.URL)
+
+if args.command in double_param_commands:
+    if is_valid_url(args.SOURCE):
+        parse_ftp_url(args.SOURCE)
+        local_path = args.DEST
+        PULL = True
+    elif is_valid_url(args.DEST):
+        parse_ftp_url(args.DEST)
+        local_path = args.SOURCE
+        PULL = False
+    else:
+        sys.exit("Error: Invalid URL or file path")
+
+def generate_user_message():
+    """Generate USER FTP message"""
+    if ftp_user != "None":
+        return "".join(["USER ",ftp_user, "\r\n"])
+    return "".join(["USER ", "anonymous", "\r\n"])
+
+def read_socket(sock:socket):
+    """Read data from server socket"""
+    buffer = ""
+    server_data = bytes()
+    i = 0
+    while (not buffer.endswith("\r\n")):
+        server_data = sock.recv(4096)
+        buffer += server_data.decode("utf-8")
+        i += 1
+        if (i > 8):
+            break
+
+    print(buffer)
+    command_pieces = buffer.split(" ")
+    if command_pieces[0] == "227":
+        command_pieces[-1] = command_pieces[-1].strip('().\r\n')
+        data_addr = command_pieces[-1].split(",")
+        i = 0
+        data_ip = ""
+        for i in range(0,3):
+            data_ip += data_addr[i] + "."
+            i += 1
+        data_ip += data_addr[3]
+        data_port = (int(data_addr[4]) << 8) + int(data_addr[5])
+        datasock.connect((data_ip, data_port))
+
+def prepare_data_transfer(sock:socket):
+    """Prepare the FTP server for data transfer"""
+    sock.sendall(bytes("PASV\r\n", "utf-8"))
+    read_socket(sock)
+    sock.sendall(bytes("TYPE I\r\n", "utf-8"))
+    read_socket(sock)
+    sock.sendall(bytes("MODE S\r\n", "utf-8"))
+    read_socket(sock)
+    sock.sendall(bytes("STRU F\r\n", "utf-8"))
+    read_socket(sock)
+
+def pull_data_from_server(sock:socket):
+    """Pull data from server"""
+    file = open(local_path, "wb")
+    sock.sendall(bytes("RETR " + ftp_path + "\r\n", "utf-8"))
+    read_socket(sock)
+    line = datasock.recv(4096)
+    while line:
+        file.write(line)
+        line = datasock.recv(4096)
+    datasock.close()
+    file.close()
+    read_socket(sock)
+
+def push_data_to_server(sock:socket):
+    """Push data to server"""
+    file = open(local_path, "rb")
+    sock.sendall(bytes("STOR " + ftp_path +"\r\n", "utf-8"))
+    read_socket(sock)
+    datasock.sendall(file.read())
+    datasock.close()
+    read_socket(sock)
+
+# Create socket for data transfer
+datasock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as control_sock:
+
+    # Connect to the FTP server
+    control_sock.connect((ftp_host, ftp_port))
+    read_socket(control_sock)
+    control_sock.sendall(bytes(generate_user_message(), "utf-8"))
+    read_socket(control_sock)
+    if ftp_password != "None":
+        control_sock.sendall(bytes("".join(["PASS ", ftp_password, "\r\n"]), "utf-8"))
+        read_socket(control_sock)
+
+    # Perform FTP operations based on the command
+    if args.command == "ls":
+        prepare_data_transfer(control_sock)
+        control_sock.sendall(bytes("LIST " + ftp_path +"\r\n", "utf-8"))
+        read_socket(control_sock)
+        line = datasock.recv(1024)
+        while line:
+            print(line.decode("utf-8"))
+            line = datasock.recv(1024)
+        read_socket(control_sock)
+    elif args.command == "rm":
+        control_sock.sendall(bytes("DELE " + ftp_path +"\r\n", "utf-8"))
+        read_socket(control_sock)
+    elif args.command == "mkdir":
+        control_sock.sendall(bytes("MKD " + ftp_path +"\r\n", "utf-8"))
+        read_socket(control_sock)
+    elif args.command == "rmdir":
+        control_sock.sendall(bytes("RMD " + ftp_path +"\r\n", "utf-8"))
+        read_socket(control_sock)
+    elif args.command == "cp":
+        prepare_data_transfer(control_sock)
+        if PULL:
+            pull_data_from_server(control_sock)
+        else:
+            push_data_to_server(control_sock)
+    elif args.command == "mv":
+        prepare_data_transfer(control_sock)
+        if PULL:
+            pull_data_from_server(control_sock)
+            control_sock.sendall(bytes("DELE " + ftp_path + "\r\n", "utf-8"))
+            read_socket(control_sock)
+        else:
+            push_data_to_server(control_sock)
+            os.remove(local_path)
+    control_sock.sendall(bytes("QUIT\r\n", "utf-8"))
+    read_socket(control_sock)
+    control_sock.close()
