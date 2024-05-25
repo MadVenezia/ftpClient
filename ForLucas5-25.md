@@ -39,3 +39,7 @@ YOUR TAMALE
 ⠀⠀⠀⠀⠀⠀⠀⠉⠛⠶⣄⡀⢀⣠⠶⠋⠁⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠛⠋⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 ```
+
+![Cat Hug Cutie](https://media.giphy.com/media/qFmdpUKAFZ6rMobzzu/giphy.gif)
+[via GIPHY](https://giphy.com/gifs/cat-hug-cutie-qFmdpUKAFZ6rMobzzu)
+
